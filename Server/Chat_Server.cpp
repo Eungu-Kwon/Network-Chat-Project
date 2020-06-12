@@ -3,7 +3,9 @@
 #include <string.h>
 #include <windows.h>
 #include <process.h> 
-
+#include <vector>
+#include <string>
+using namespace std;
 #pragma comment(lib, "Ws2_32.lib")
 
 #define BUF_SIZE 100
@@ -13,8 +15,9 @@ unsigned WINAPI HandleClnt(void* arg);
 void SendMsg(char* msg, int len);
 void ErrorHandling(const char* msg);
 
-int clntCnt = 0;
-SOCKET clntSocks[MAX_CLNT];
+vector<pair<SOCKET, char*> > clntSocks;
+vector<pair<SOCKET, SOCKET> >chatrooms;
+
 HANDLE hMutex;
 
 int main(int argc, char* argv[])
@@ -23,7 +26,10 @@ int main(int argc, char* argv[])
 	SOCKET hServSock, hClntSock;
 	SOCKADDR_IN servAdr, clntAdr;
 	int clntAdrSz;
+	char* nameBuf;
+	int nameSize;
 	HANDLE  hThread;
+
 	if (argc != 2) {
 		printf("Usage : %s <port>\n", argv[0]);
 		exit(1);
@@ -50,7 +56,11 @@ int main(int argc, char* argv[])
 		hClntSock = accept(hServSock, (SOCKADDR*)&clntAdr, &clntAdrSz);
 
 		WaitForSingleObject(hMutex, INFINITE);
-		clntSocks[clntCnt++] = hClntSock;
+		nameBuf = (char*)malloc(sizeof(char) * 100);
+		nameSize = recv(hClntSock, nameBuf, 100, 0);
+		nameBuf[nameSize] = '\0';
+
+		clntSocks.push_back(make_pair(hClntSock, nameBuf));
 		ReleaseMutex(hMutex);
 
 		hThread =
@@ -66,32 +76,63 @@ unsigned WINAPI HandleClnt(void* arg)
 {
 	SOCKET hClntSock = *((SOCKET*)arg);
 	int strLen = 0, i;
+	char* name = NULL;
 	char msg[BUF_SIZE];
+	char msgToSend[BUF_SIZE + 100];
 
-	while ((strLen = recv(hClntSock, msg, sizeof(msg), 0)) != 0)
-		SendMsg(msg, strLen);
-
-	WaitForSingleObject(hMutex, INFINITE);
-	for (i = 0; i < clntCnt; i++)   // remove disconnected client
-	{
-		if (hClntSock == clntSocks[i])
-		{
-			while (i++ < clntCnt - 1)
-				clntSocks[i] = clntSocks[i + 1];
+	for (auto it = clntSocks.begin(); it != clntSocks.end(); it++) {
+		if (hClntSock == (*it).first) {
+			name = (*it).second;
 			break;
 		}
 	}
-	clntCnt--;
+
+	while (1) {
+		strLen = recv(hClntSock, msg, sizeof(msg), 0);
+		if (strLen < 0) break;
+		msg[strLen] = '\0';
+		if (strcmp(msg, "showlist") == 0) {
+			printf("send!\n");
+			for (auto it = clntSocks.begin(); it != clntSocks.end(); it++) {
+				printf("len %d\n", strlen((*it).second));
+				send(hClntSock, (*it).second, strlen((*it).second), 0);
+			}
+			send(hClntSock, "/end", 5, 0);
+		}
+		else if (strcmp(msg, "request") == 0) {
+
+		}
+	}
+
+	while ((strLen = recv(hClntSock, msg, sizeof(msg), 0)) > 0) {
+		msgToSend[0] = '\0';
+		msg[strLen] = '\0';
+		strcat_s(msgToSend, name);
+		strcat_s(msgToSend, " ");
+		strcat_s(msgToSend, msg);
+
+		SendMsg(msgToSend, strlen(msgToSend));
+	}
+
+	WaitForSingleObject(hMutex, INFINITE);
+	for (auto it = clntSocks.begin(); it != clntSocks.end(); it++)   // remove disconnected client
+	{
+		if (hClntSock == (*it).first) {
+			clntSocks.erase(it);
+			break;
+		}
+	}
 	ReleaseMutex(hMutex);
 	closesocket(hClntSock);
 	return 0;
 }
+
 void SendMsg(char* msg, int len)   // send to all
 {
 	int i;
 	WaitForSingleObject(hMutex, INFINITE);
-	for (i = 0; i < clntCnt; i++)
-		send(clntSocks[i], msg, len, 0);
+	for (i = 0; i < clntSocks.size(); i++)
+		send(clntSocks[i].first, msg, len, 0);
 
 	ReleaseMutex(hMutex);
 }

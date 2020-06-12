@@ -1,1 +1,4 @@
-﻿  Server.vcxproj -> C:\Users\Eungu Kwon\source\repos\Network_Chat_Project\Debug\Server.exe
+﻿  Chat_Server.cpp
+C:\Users\Eungu Kwon\source\repos\Network_Chat_Project\Server\Chat_Server.cpp(78,18): warning C4101: 'i' :참조되지 않은 지역 변수입니다.
+C:\Users\Eungu Kwon\source\repos\Network_Chat_Project\Server\Chat_Server.cpp(133,16): warning C4018: '<': signed 또는 unsigned가 일치하지 않습니다.
+  Server.vcxproj -> C:\Users\Eungu Kwon\source\repos\Network_Chat_Project\Debug\Server.exe
