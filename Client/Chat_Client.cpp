@@ -1,9 +1,11 @@
 #define _CRT_SECURE_NO_WARNINGS
 #include <stdio.h>
+#include <iostream>
 #include <stdlib.h>
 #include <string.h>
 #include <windows.h>
 #include <process.h> 
+using namespace std;
 
 #pragma comment(lib, "Ws2_32.lib")
 
@@ -16,6 +18,14 @@ void ErrorHandling(const char* msg);
 
 char name[NAME_SIZE] = "[DEFAULT]";
 char msg[BUF_SIZE];
+
+void setName() {
+	int name_size;
+	fputs("채팅 서버에 접속하기 위해 닉네임을 입력해주세요.\n", stdout);
+	cin >> msg;
+	cin.ignore(1);
+	sprintf(name, "[%s]", "asd");
+}
 
 int main(int argc, char* argv[])
 {
@@ -30,7 +40,7 @@ int main(int argc, char* argv[])
 	if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0)
 		ErrorHandling("WSAStartup() error!");
 
-	sprintf(name, "[%s]", argv[3]);
+	setName();
 	hSock = socket(PF_INET, SOCK_STREAM, 0);
 
 	memset(&servAdr, 0, sizeof(servAdr));
@@ -40,6 +50,9 @@ int main(int argc, char* argv[])
 
 	if (connect(hSock, (SOCKADDR*)&servAdr, sizeof(servAdr)) == SOCKET_ERROR)
 		ErrorHandling("connect() error");
+
+	cout << "채팅 서버에 접속되었습니다. 메뉴를 선택해주세요" << endl;
+	cout << "(사용자 리스트 확인 : !ㅣ or !l, 채팅 요청 !R or !r, 종료 : !Q or !q" << endl;
 
 	hSndThread =
 		(HANDLE)_beginthreadex(NULL, 0, SendMsg, (void*)&hSock, 0, NULL);
