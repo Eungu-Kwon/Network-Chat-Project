@@ -19,6 +19,10 @@ void ErrorHandling(const char* msg);
 char name[NAME_SIZE] = "[DEFAULT]";
 char msg[BUF_SIZE];
 
+int state = 0;
+
+HANDLE hMutex, hMutex1;
+
 enum Menu{
 	Menu_ShowCommands = 1,
 	Menu_CheckList,
@@ -26,6 +30,8 @@ enum Menu{
 	Menu_MakeGroup,
 	Menu_JoinGroup,
 	Menu_Exit,
+	REQUEST_YES,
+	REQUEST_NO,
 	Menu_Bad
 };
 
@@ -39,6 +45,7 @@ void setName() {
 
 enum Menu getCommand() {
 	fputs("메뉴를 선택해주세요. (!h or !H : 명령어 확인)\n", stdout);
+	
 	cin >> msg;
 	cin.ignore(1);
 	if (strcmp(msg, "!h") == 0 || strcmp(msg, "!H") == 0) return Menu_ShowCommands;
@@ -47,6 +54,8 @@ enum Menu getCommand() {
 	else if (strcmp(msg, "!g") == 0 || strcmp(msg, "!G") == 0) return Menu_MakeGroup;
 	else if (strcmp(msg, "!j") == 0 || strcmp(msg, "!J") == 0) return Menu_JoinGroup;
 	else if (strcmp(msg, "!q") == 0 || strcmp(msg, "!Q") == 0) return Menu_Exit;
+	else if (state == 1 && (strcmp(msg, "!y") == 0 || strcmp(msg, "!Y") == 0)) return REQUEST_YES;
+	else if (state == 1 && (strcmp(msg, "!n") == 0 || strcmp(msg, "!N") == 0)) return REQUEST_NO;
 	else return Menu_Bad;
 }
 
@@ -60,21 +69,27 @@ void printCommands() {
 }
 
 void printList(SOCKET hSock) {
-	char names[100];
-	int nameSize;
+	char buf[1];
+	int nameSize, nameCount;
+	
 	send(hSock, "showlist", 9, 0);
-	while (1) {
-		nameSize = recv(hSock, names, sizeof(names), 0);
-		names[nameSize] = '\0';
-		if (strcmp(names, "/end") == 0) {
-			cout << '\n';
-			break;
-		}
-		cout << names << '\n';
-	}
+	recv(hSock, buf, 1, 0);
+	
+}
+
+void chatRequest(SOCKET hSock) {
+	char name[100];
+	cout << "대상을 입력하세요. >> ";
+	cin >> name;
+	cin.ignore(1);
+	cout << "요청중..." << '\n';
+	send(hSock, "requestchat", 12, 0);
+	send(hSock, name, strlen(name), 0);
+	state = 2;
 }
 
 int runCommand(SOCKET hSock) {
+	WaitForSingleObject(hMutex, INFINITE);
 	switch (getCommand())
 	{
 	case Menu_ShowCommands:
@@ -84,6 +99,7 @@ int runCommand(SOCKET hSock) {
 		printList(hSock);
 		break;
 	case Menu_ChatRequest:
+		chatRequest(hSock);
 		break;
 	case Menu_MakeGroup:
 		break;
@@ -92,9 +108,18 @@ int runCommand(SOCKET hSock) {
 	case Menu_Exit:
 		cout << "프로그램을 종료합니다." << '\n';
 		return 1;
-	default:
+	case REQUEST_YES:
+		send(hSock, "Y", 1, 0);
+		state = 3;
 		break;
+	case REQUEST_NO:
+		send(hSock, "N", 1, 0);
+		state = 0;
+		break;
+	default:
+		return 0;
 	}
+	ReleaseMutex(hMutex);
 	return 0;
 }
 
@@ -114,6 +139,9 @@ int main(int argc, char* argv[])
 	setName();
 	hSock = socket(PF_INET, SOCK_STREAM, 0);
 
+	hMutex = CreateMutex(NULL, FALSE, NULL);
+	hMutex1 = CreateMutex(NULL, FALSE, NULL);
+
 	memset(&servAdr, 0, sizeof(servAdr));
 	servAdr.sin_family = AF_INET;
 	servAdr.sin_addr.s_addr = inet_addr("127.0.0.1");
@@ -125,16 +153,22 @@ int main(int argc, char* argv[])
 	send(hSock, name, strlen(name), 0);
 	cout << "채팅 서버에 접속되었습니다." << endl;
 
-	while (1) {
-		if (runCommand(hSock)) break;
-	}
-
-	hSndThread =
-		(HANDLE)_beginthreadex(NULL, 0, SendMsg, (void*)&hSock, 0, NULL);
 	hRcvThread =
 		(HANDLE)_beginthreadex(NULL, 0, RecvMsg, (void*)&hSock, 0, NULL);
 
-	WaitForSingleObject(hSndThread, INFINITE);
+	while (1) {
+		if (state == 0) {
+			if (runCommand(hSock)) break;
+		}
+		
+		if (state == 3) {
+			cout << "연결되었습니다.\n";
+			hSndThread =
+				(HANDLE)_beginthreadex(NULL, 0, SendMsg, (void*)&hSock, 0, NULL);
+			WaitForSingleObject(hSndThread, INFINITE);
+		}
+	}
+
 	WaitForSingleObject(hRcvThread, INFINITE);
 	closesocket(hSock);
 	WSACleanup();
@@ -148,29 +182,77 @@ unsigned WINAPI SendMsg(void* arg)   // send thread main
 	while (1)
 	{
 		fgets(msg, BUF_SIZE, stdin);
+		if (state == 0) break;
 		if (!strcmp(msg, "q\n") || !strcmp(msg, "Q\n"))
 		{
-			closesocket(hSock);
-			exit(0);
+			send(hSock, msg, 1, 0);
+			break;
 		}
-		//sprintf(nameMsg, "%s %s", name, msg);
-		send(hSock, msg, strlen(msg), 0);
+		send(hSock, msg, strlen(msg) - 1, 0);
 	}
+	state = 0;
 	return 0;
 }
 
 unsigned WINAPI RecvMsg(void* arg)   // read thread main
 {
 	int hSock = *((SOCKET*)arg);
-	char nameMsg[NAME_SIZE + BUF_SIZE];
+	char msg[NAME_SIZE + BUF_SIZE];
 	int strLen;
+	int bufInt;
 	while (1)
 	{
-		strLen = recv(hSock, nameMsg, NAME_SIZE + BUF_SIZE - 1, 0);
+		strLen = recv(hSock, msg, 1, 0);
+
+		//printf("you got message\n");
+		
 		if (strLen == -1)
 			return -1;
-		nameMsg[strLen] = 0;
-		fputs(nameMsg, stdout);
+		
+		bufInt = (int)msg[0];
+
+		if (state == 0) {
+			switch (bufInt)
+			{
+			case 1:
+				WaitForSingleObject(hMutex, INFINITE);
+				strLen = recv(hSock, msg, 1, 0);
+				if (strLen == -1)
+					return -1;
+				bufInt = (int)msg[0];
+				while (bufInt != 0) {
+					if (recv(hSock, msg, 1, 0) < 0) break;
+					if (msg[0] == '\n') bufInt--;
+					printf("%c", msg[0]);
+				}
+				cout << endl;
+				ReleaseMutex(hMutex);
+				break;
+			case 2:
+				strLen = recv(hSock, msg, BUF_SIZE + NAME_SIZE, 0);
+				msg[strLen] = '\0';
+				cout << msg << " 님이 요청하였습니다.\n";
+				state = 1;
+			default:
+				break;
+			}
+		}
+		
+		else if (state == 2) {
+			if(msg[0] == 'Y') state = 3;
+			else if(msg[0] == 'N') state = 0;
+		}
+
+		else if (state == 3) {
+			if (msg[0] == 'q') {
+				state = 0;
+				cout << "연결이 끊어졌습니다. 계속하려면 엔터를 누르세요.";
+				continue;
+			}
+			strLen = recv(hSock, msg, BUF_SIZE, 0);
+			msg[strLen] = '\0';
+			cout << msg;
+		}
 	}
 	return 0;
 }

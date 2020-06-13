@@ -4,6 +4,7 @@
 #include <windows.h>
 #include <process.h> 
 #include <vector>
+#include <map>
 #include <string>
 using namespace std;
 #pragma comment(lib, "Ws2_32.lib")
@@ -12,22 +13,41 @@ using namespace std;
 #define MAX_CLNT 256
 
 unsigned WINAPI HandleClnt(void* arg);
-void SendMsg(char* msg, int len);
+void SendMsg(SOCKET sock, char* msg, int len);
 void ErrorHandling(const char* msg);
 
-vector<pair<SOCKET, char*> > clntSocks;
+enum States {
+	NONE,
+	WaitingRequest,
+	WaitingAnswer,
+	Connected
+};
+
+typedef struct sock_state {
+	char* name;
+	enum States state;
+	int connectwith;
+}SOCKSTATE;
+
+map<SOCKET, SOCKSTATE> clntSocks;
+vector<pair<SOCKET, SOCKET> > requests;
 vector<pair<SOCKET, SOCKET> >chatrooms;
 
 HANDLE hMutex;
+
+void HandleData(char* msg, int msgCount, SOCKET sock);
 
 int main(int argc, char* argv[])
 {
 	WSADATA wsaData;
 	SOCKET hServSock, hClntSock;
 	SOCKADDR_IN servAdr, clntAdr;
+	SOCKSTATE state;
 	int clntAdrSz;
 	char* nameBuf;
-	int nameSize;
+	char buf[BUF_SIZE];
+	int strLen;
+	int fdNum;
 	HANDLE  hThread;
 
 	if (argc != 2) {
@@ -57,10 +77,12 @@ int main(int argc, char* argv[])
 
 		WaitForSingleObject(hMutex, INFINITE);
 		nameBuf = (char*)malloc(sizeof(char) * 100);
-		nameSize = recv(hClntSock, nameBuf, 100, 0);
-		nameBuf[nameSize] = '\0';
+		strLen = recv(hClntSock, nameBuf, 100, 0);
+		nameBuf[strLen] = '\0';
+		state.name = nameBuf;
+		state.state = NONE;
 
-		clntSocks.push_back(make_pair(hClntSock, nameBuf));
+		clntSocks.insert(make_pair(hClntSock, state));
 		ReleaseMutex(hMutex);
 
 		hThread =
@@ -72,49 +94,115 @@ int main(int argc, char* argv[])
 	return 0;
 }
 
+SOCKET getSocketFromName(char* name) {
+	for(auto it = clntSocks.begin(); it != clntSocks.end(); it++)
+		if (strcmp(name, it->second.name) == 0) {
+			return it->first;
+		}
+	return SOCKET_ERROR;
+}
+
+void HandleData(char* msg, int msgCount, SOCKET sock) {
+	char buf[BUF_SIZE];
+	char name[BUF_SIZE];
+	int recvSize;
+	auto clntItem = clntSocks.find(sock);
+	SOCKET temp;
+	
+	if (strcmp(msg, "showlist") == 0) {
+		buf[0] = (char)1;
+		send(sock, buf, sizeof(char), 0);
+		send(sock, buf, sizeof(char), 0);
+		buf[0] = (char)clntSocks.size();
+		send(sock, buf, sizeof(char), 0);
+		for (auto it = clntSocks.begin(); it != clntSocks.end(); it++) {
+			sprintf_s(buf, "%s\n", (*it).second.name);
+			send(sock, buf, strlen(buf), 0);
+		}
+	}
+	else if (strncmp(msg, "requestchat", 11) == 0) {
+		if (msgCount == 12) {
+			recvSize = recv(sock, buf, BUF_SIZE, 0);
+			buf[recvSize] = '\0';
+			sprintf_s(name, "[%s]", buf);
+		}
+		else {
+			sprintf_s(name, "[%s]", msg + 12);
+		}
+
+		if ((temp = getSocketFromName(name)) != SOCKET_ERROR) {
+			buf[0] = 2;
+			send(temp, buf, 1, 0);
+			send(temp, name, strlen(name), 0);
+			clntSocks.find(temp)->second.state = WaitingAnswer;
+			clntSocks.find(sock)->second.state = WaitingRequest;
+			requests.push_back(make_pair(temp, sock));
+		}
+	}
+}
+
+void breakroom(SOCKET sock) {
+	char msg[] = "q";
+
+	for (auto it = chatrooms.begin(); it != chatrooms.end(); it++) {
+		if (it->first == sock) {
+			send(it->second, msg, 1, 0);
+			clntSocks.find(it->second)->second.state = NONE;
+			chatrooms.erase(it);
+			break;
+		}
+		else if (it->second == sock) {
+			send(it->first, msg, 1, 0);
+			clntSocks.find(it->first)->second.state = NONE;
+			chatrooms.erase(it);
+			break;
+		}
+	}
+	clntSocks.find(sock)->second.state = NONE;
+}
+
 unsigned WINAPI HandleClnt(void* arg)
 {
 	SOCKET hClntSock = *((SOCKET*)arg);
+	enum States s;
+
 	int strLen = 0, i;
 	char* name = NULL;
 	char msg[BUF_SIZE];
 	char msgToSend[BUF_SIZE + 100];
 
-	for (auto it = clntSocks.begin(); it != clntSocks.end(); it++) {
-		if (hClntSock == (*it).first) {
-			name = (*it).second;
-			break;
-		}
-	}
+	name = clntSocks.find(hClntSock)->second.name;
 
 	while (1) {
 		strLen = recv(hClntSock, msg, sizeof(msg), 0);
 		if (strLen < 0) break;
 		msg[strLen] = '\0';
-		if (strcmp(msg, "showlist") == 0) {
-			printf("send!\n");
-			for (auto it = clntSocks.begin(); it != clntSocks.end(); it++) {
-				printf("len %d\n", strlen((*it).second));
-				send(hClntSock, (*it).second, strlen((*it).second), 0);
+		s = clntSocks.find(hClntSock)->second.state;
+		if(s == NONE) HandleData(msg, strLen, hClntSock);
+		else if (s == WaitingAnswer) {
+			for (auto it = requests.begin(); it != requests.end(); it++) {
+				if (it->first == hClntSock) {
+					clntSocks.find(hClntSock)->second.state = Connected;
+					clntSocks.find(it->second)->second.state = Connected;
+					send(it->second, msg, 1, 0);
+					chatrooms.push_back(*it);
+					requests.erase(it);
+					printf("connected!!\n");
+					break;
+				}
 			}
-			send(hClntSock, "/end", 5, 0);
 		}
-		else if (strcmp(msg, "request") == 0) {
-
+		else if (s == Connected) {
+			if (strLen == 1 && (msg[0] == 'q' || msg[0] == 'Q')) {
+				breakroom(hClntSock);
+			}
+			sprintf_s(msgToSend, "%s %s\n", name, msg);
+			SendMsg(hClntSock, msgToSend, strlen(msgToSend));
 		}
-	}
-
-	while ((strLen = recv(hClntSock, msg, sizeof(msg), 0)) > 0) {
-		msgToSend[0] = '\0';
-		msg[strLen] = '\0';
-		strcat_s(msgToSend, name);
-		strcat_s(msgToSend, " ");
-		strcat_s(msgToSend, msg);
-
-		SendMsg(msgToSend, strlen(msgToSend));
 	}
 
 	WaitForSingleObject(hMutex, INFINITE);
+	free(name);
 	for (auto it = clntSocks.begin(); it != clntSocks.end(); it++)   // remove disconnected client
 	{
 		if (hClntSock == (*it).first) {
@@ -127,12 +215,23 @@ unsigned WINAPI HandleClnt(void* arg)
 	return 0;
 }
 
-void SendMsg(char* msg, int len)   // send to all
+void SendMsg(SOCKET sock, char* msg, int len)   // send to all
 {
 	int i;
 	WaitForSingleObject(hMutex, INFINITE);
-	for (i = 0; i < clntSocks.size(); i++)
-		send(clntSocks[i].first, msg, len, 0);
+	printf("%d\n", chatrooms.size());
+	for (auto it = chatrooms.begin(); it != chatrooms.end(); it++) {
+		if (it->first == sock) {
+			send(it->second, msg, 1, 0);
+			send(it->second, msg, len, 0);
+			break;
+		}
+		else if (it->second == sock) {
+			send(it->first, msg, 1, 0);
+			send(it->first, msg, len, 0);
+			break;
+		}
+	}
 
 	ReleaseMutex(hMutex);
 }
