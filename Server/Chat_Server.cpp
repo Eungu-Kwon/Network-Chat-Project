@@ -3,6 +3,7 @@
 #include <string.h>
 #include <windows.h>
 #include <process.h> 
+#include <iostream>
 #include <vector>
 #include <map>
 #include <string>
@@ -33,9 +34,10 @@ map<SOCKET, SOCKSTATE> clntSocks;
 vector<pair<SOCKET, SOCKET> > requests;
 vector<pair<SOCKET, SOCKET> >chatrooms;
 
-HANDLE hMutex;
+HANDLE hMutex, hEvent;
 
 void HandleData(char* msg, int msgCount, SOCKET sock);
+SOCKET getSocketFromName(char* name);
 
 int main(int argc, char* argv[])
 {
@@ -77,8 +79,18 @@ int main(int argc, char* argv[])
 
 		WaitForSingleObject(hMutex, INFINITE);
 		nameBuf = (char*)malloc(sizeof(char) * 100);
-		strLen = recv(hClntSock, nameBuf, 100, 0);
-		nameBuf[strLen] = '\0';
+		while (1) {
+			strLen = recv(hClntSock, nameBuf, 100, 0);
+			nameBuf[strLen] = '\0';
+			if (getSocketFromName(nameBuf) == SOCKET_ERROR) {
+				send(hClntSock, "Y", 1, 0);
+				break;
+			}
+			else {
+				send(hClntSock, "N", 1, 0);
+			}
+		}
+		
 		state.name = nameBuf;
 		state.state = NONE;
 
@@ -133,10 +145,14 @@ void HandleData(char* msg, int msgCount, SOCKET sock) {
 		if ((temp = getSocketFromName(name)) != SOCKET_ERROR) {
 			buf[0] = 2;
 			send(temp, buf, 1, 0);
-			send(temp, name, strlen(name), 0);
+			send(temp, clntSocks.find(sock)->second.name, strlen(name), 0);
 			clntSocks.find(temp)->second.state = WaitingAnswer;
 			clntSocks.find(sock)->second.state = WaitingRequest;
 			requests.push_back(make_pair(temp, sock));
+		}
+		else {
+			send(sock, "2", 1, 0);
+			send(sock, "I", 1, 0);
 		}
 	}
 }
@@ -161,6 +177,17 @@ void breakroom(SOCKET sock) {
 	clntSocks.find(sock)->second.state = NONE;
 }
 
+int setSocketState(SOCKET s, enum States state) {
+	auto it = clntSocks.find(s);
+	if (it != clntSocks.end()) {
+		it->second.state = state;
+		return 0;
+	}
+	else {
+		return 1;
+	}
+}
+
 unsigned WINAPI HandleClnt(void* arg)
 {
 	SOCKET hClntSock = *((SOCKET*)arg);
@@ -179,19 +206,32 @@ unsigned WINAPI HandleClnt(void* arg)
 		msg[strLen] = '\0';
 		s = clntSocks.find(hClntSock)->second.state;
 		if(s == NONE) HandleData(msg, strLen, hClntSock);
+
 		else if (s == WaitingAnswer) {
 			for (auto it = requests.begin(); it != requests.end(); it++) {
 				if (it->first == hClntSock) {
-					clntSocks.find(hClntSock)->second.state = Connected;
-					clntSocks.find(it->second)->second.state = Connected;
+					if (msg[0] == 'Y') {
+						if (setSocketState(it->second, Connected)) {
+							send(hClntSock, "N", 1, 0);
+							requests.erase(it);
+							setSocketState(hClntSock, NONE);
+							break;
+						}
+						setSocketState(hClntSock, Connected);
+						chatrooms.push_back(*it);
+					}
+					else {
+						setSocketState(hClntSock, NONE);
+						setSocketState(it->second, NONE);
+					}
+					send(hClntSock, "O", 1, 0);
 					send(it->second, msg, 1, 0);
-					chatrooms.push_back(*it);
 					requests.erase(it);
-					printf("connected!!\n");
 					break;
 				}
 			}
 		}
+
 		else if (s == Connected) {
 			if (strLen == 1 && (msg[0] == 'q' || msg[0] == 'Q')) {
 				breakroom(hClntSock);
@@ -215,11 +255,10 @@ unsigned WINAPI HandleClnt(void* arg)
 	return 0;
 }
 
-void SendMsg(SOCKET sock, char* msg, int len)   // send to all
+void SendMsg(SOCKET sock, char* msg, int len)
 {
 	int i;
 	WaitForSingleObject(hMutex, INFINITE);
-	printf("%d\n", chatrooms.size());
 	for (auto it = chatrooms.begin(); it != chatrooms.end(); it++) {
 		if (it->first == sock) {
 			send(it->second, msg, 1, 0);
