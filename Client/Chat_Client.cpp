@@ -210,11 +210,12 @@ unsigned WINAPI SendMsg(void* arg)
 		if (!strcmp(msg, "q\n") || !strcmp(msg, "Q\n"))
 		{
 			send(hSock, msg, 1, 0);
+			state = 0;
 			break;
 		}
 		send(hSock, msg, strlen(msg) - 1, 0);
 	}
-	state = 0;
+	
 	return 0;
 }
 

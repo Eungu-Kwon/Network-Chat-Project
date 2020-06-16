@@ -25,7 +25,7 @@ enum States {
 };
 
 typedef struct sock_state {
-	char* name;
+	char name[100];
 	enum States state;
 	int connectwith;
 }SOCKSTATE;
@@ -50,7 +50,7 @@ int main(int argc, char* argv[])
 	char buf[BUF_SIZE];
 	int strLen;
 	int fdNum;
-	HANDLE  hThread;
+	HANDLE  hThread, hNamingThread;
 
 	if (argc != 2) {
 		printf("Usage : %s <port>\n", argv[0]);
@@ -77,26 +77,6 @@ int main(int argc, char* argv[])
 		clntAdrSz = sizeof(clntAdr);
 		hClntSock = accept(hServSock, (SOCKADDR*)&clntAdr, &clntAdrSz);
 
-		WaitForSingleObject(hMutex, INFINITE);
-		nameBuf = (char*)malloc(sizeof(char) * 100);
-		while (1) {
-			strLen = recv(hClntSock, nameBuf, 100, 0);
-			nameBuf[strLen] = '\0';
-			if (getSocketFromName(nameBuf) == SOCKET_ERROR) {
-				send(hClntSock, "Y", 1, 0);
-				break;
-			}
-			else {
-				send(hClntSock, "N", 1, 0);
-			}
-		}
-		
-		state.name = nameBuf;
-		state.state = NONE;
-
-		clntSocks.insert(make_pair(hClntSock, state));
-		ReleaseMutex(hMutex);
-
 		hThread =
 			(HANDLE)_beginthreadex(NULL, 0, HandleClnt, (void*)&hClntSock, 0, NULL);
 		printf("Connected client IP: %s \n", inet_ntoa(clntAdr.sin_addr));
@@ -107,11 +87,15 @@ int main(int argc, char* argv[])
 }
 
 SOCKET getSocketFromName(char* name) {
+	WaitForSingleObject(hMutex, INFINITE);
+	SOCKET ret = SOCKET_ERROR;
 	for(auto it = clntSocks.begin(); it != clntSocks.end(); it++)
 		if (strcmp(name, it->second.name) == 0) {
-			return it->first;
+			ret = it->first;
+			break;
 		}
-	return SOCKET_ERROR;
+	ReleaseMutex(hMutex);
+	return ret;
 }
 
 void HandleData(char* msg, int msgCount, SOCKET sock) {
@@ -121,7 +105,7 @@ void HandleData(char* msg, int msgCount, SOCKET sock) {
 	auto clntItem = clntSocks.find(sock);
 	SOCKET temp;
 	
-	if (strcmp(msg, "showlist") == 0) {
+	if (strcmp(msg, "showlist") == 0) {		// 대화중인 클라이언트 따로 빼기
 		buf[0] = (char)1;
 		send(sock, buf, sizeof(char), 0);
 		send(sock, buf, sizeof(char), 0);
@@ -192,13 +176,33 @@ unsigned WINAPI HandleClnt(void* arg)
 {
 	SOCKET hClntSock = *((SOCKET*)arg);
 	enum States s;
+	SOCKSTATE state;
 
 	int strLen = 0, i;
-	char* name = NULL;
+	char name[100];
 	char msg[BUF_SIZE];
 	char msgToSend[BUF_SIZE + 100];
 
-	name = clntSocks.find(hClntSock)->second.name;
+	while (1) {
+		strLen = recv(hClntSock, name, 100, 0);
+		if (strLen <= 0) {
+			closesocket(hClntSock);
+			return 0;
+		}
+		name[strLen] = '\0';
+		if (getSocketFromName(name) == SOCKET_ERROR) {
+			send(hClntSock, "Y", 1, 0);
+			break;
+		}
+		else {
+			send(hClntSock, "N", 1, 0);
+		}
+	}
+
+	strcpy_s(state.name, name);
+	state.state = NONE;
+
+	clntSocks.insert(make_pair(hClntSock, state));
 
 	while (1) {
 		strLen = recv(hClntSock, msg, sizeof(msg), 0);
@@ -242,7 +246,6 @@ unsigned WINAPI HandleClnt(void* arg)
 	}
 
 	WaitForSingleObject(hMutex, INFINITE);
-	free(name);
 	for (auto it = clntSocks.begin(); it != clntSocks.end(); it++)   // remove disconnected client
 	{
 		if (hClntSock == (*it).first) {
