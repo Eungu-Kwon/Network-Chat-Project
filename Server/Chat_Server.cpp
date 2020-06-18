@@ -42,6 +42,8 @@ map<int, vector<SOCKET> > group_chats;
 
 HANDLE hMutex, hEvent;
 
+int waitingroomCnt = 0;
+
 int main(int argc, char* argv[])
 {
 	WSADATA wsaData;
@@ -195,15 +197,16 @@ void HandleCommand(char* msg, int msgCount, SOCKET sock) {
 	auto clntItem = clntSocks.find(sock);
 	SOCKET temp;
 
-	if (strcmp(msg, "showlist") == 0) {		// 대화중인 클라이언트 따로 빼기
+	if (strcmp(msg, "showlist") == 0) {
 		buf[0] = (char)1;
 		send(sock, buf, 1, 0);
-		buf[0] = (char)clntSocks.size();
-		send(sock, buf, sizeof(char), 0);
 		for (auto it = clntSocks.begin(); it != clntSocks.end(); it++) {
-			sprintf_s(buf, "%s\n", (*it).second.name);
-			send(sock, buf, strlen(buf), 0);
+			if (it->second.state == NONE) {
+				sprintf_s(buf, "%s\n", (*it).second.name);
+				send(sock, buf, strlen(buf), 0);
+			}
 		}
+		send(sock, "*", 1, 0);
 	}
 	else if (strncmp(msg, "requestchat", 11) == 0) {
 		if (msgCount == 12) {
@@ -216,6 +219,11 @@ void HandleCommand(char* msg, int msgCount, SOCKET sock) {
 		}
 
 		if ((temp = getSocketFromName(name)) != SOCKET_ERROR) {
+			if (clntSocks.find(temp)->second.state != NONE) {
+				send(sock, "2", 1, 0);
+				send(sock, "T", 1, 0);
+				return;
+			}
 			buf[0] = 2;
 			send(temp, buf, 1, 0);
 			send(temp, clntSocks.find(sock)->second.name, strlen(name), 0);
@@ -225,7 +233,7 @@ void HandleCommand(char* msg, int msgCount, SOCKET sock) {
 		}
 		else {
 			send(sock, "2", 1, 0);
-			send(sock, "I", 1, 0);
+			send(sock, "I", 1, 0);			//Invalid
 		}
 	}
 }
