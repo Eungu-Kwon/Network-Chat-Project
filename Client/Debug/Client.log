@@ -1,6 +1,4 @@
 ﻿  Chat_Client.cpp
-C:\Users\Eungu Kwon\source\repos\Network_Chat_Project\Client\Chat_Client.cpp(39,6): warning C4101: 'name_size' :참조되지 않은 지역 변수입니다.
-C:\Users\Eungu Kwon\source\repos\Network_Chat_Project\Client\Chat_Client.cpp(92,16): warning C4101: 'nameCount' :참조되지 않은 지역 변수입니다.
-C:\Users\Eungu Kwon\source\repos\Network_Chat_Project\Client\Chat_Client.cpp(92,6): warning C4101: 'nameSize' :참조되지 않은 지역 변수입니다.
-C:\Users\Eungu Kwon\source\repos\Network_Chat_Project\Client\Chat_Client.cpp(205,7): warning C4101: 'nameMsg' :참조되지 않은 지역 변수입니다.
+C:\Users\Eungu Kwon\source\repos\Network_Chat_Project\Client\Chat_Client.cpp(99,6): warning C4101: 'name_size' :참조되지 않은 지역 변수입니다.
+C:\Users\Eungu Kwon\source\repos\Network_Chat_Project\Client\Chat_Client.cpp(208,7): warning C4101: 'nameMsg' :참조되지 않은 지역 변수입니다.
   Client.vcxproj -> C:\Users\Eungu Kwon\source\repos\Network_Chat_Project\Debug\Client.exe

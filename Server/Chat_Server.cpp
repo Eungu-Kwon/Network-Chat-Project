@@ -13,6 +13,10 @@ using namespace std;
 #define BUF_SIZE 100
 #define MAX_CLNT 256
 
+void HandleCommand(char* msg, int msgCount, SOCKET sock);
+SOCKET getSocketFromName(char* name);
+void breakroom(SOCKET sock);
+int setSocketState(SOCKET s, enum States state);
 unsigned WINAPI HandleClnt(void* arg);
 void SendMsg(SOCKET sock, char* msg, int len);
 void ErrorHandling(const char* msg);
@@ -21,7 +25,8 @@ enum States {
 	NONE,
 	WaitingRequest,
 	WaitingAnswer,
-	Connected
+	Connected,
+	GroupConnected
 };
 
 typedef struct sock_state {
@@ -33,11 +38,9 @@ typedef struct sock_state {
 map<SOCKET, SOCKSTATE> clntSocks;
 vector<pair<SOCKET, SOCKET> > requests;
 vector<pair<SOCKET, SOCKET> >chatrooms;
+map<int, vector<SOCKET> > group_chats;
 
 HANDLE hMutex, hEvent;
-
-void HandleData(char* msg, int msgCount, SOCKET sock);
-SOCKET getSocketFromName(char* name);
 
 int main(int argc, char* argv[])
 {
@@ -86,10 +89,97 @@ int main(int argc, char* argv[])
 	return 0;
 }
 
+unsigned WINAPI HandleClnt(void* arg)
+{
+	SOCKET hClntSock = *((SOCKET*)arg);
+	enum States s;
+	SOCKSTATE state;
+
+	int strLen = 0, i;
+	char name[100];
+	char msg[BUF_SIZE];
+	char msgToSend[BUF_SIZE + 100];
+
+	while (1) {											// Set Name
+		strLen = recv(hClntSock, name, 100, 0);
+		if (strLen <= 0) {
+			closesocket(hClntSock);
+			return 0;
+		}
+		name[strLen] = '\0';
+		if (getSocketFromName(name) == SOCKET_ERROR) {
+			send(hClntSock, "Y", 1, 0);
+			break;
+		}
+		else {
+			send(hClntSock, "N", 1, 0);
+		}
+	}
+
+	strcpy_s(state.name, name);
+	state.state = NONE;
+
+	clntSocks.insert(make_pair(hClntSock, state));
+
+	while (1) {
+		strLen = recv(hClntSock, msg, sizeof(msg), 0);
+		if (strLen < 0) break;
+		msg[strLen] = '\0';
+		s = clntSocks.find(hClntSock)->second.state;
+
+		if(s == NONE) HandleCommand(msg, strLen, hClntSock);
+
+		else if (s == WaitingAnswer) {
+			for (auto it = requests.begin(); it != requests.end(); it++) {
+				if (it->first == hClntSock) {
+					if (msg[0] == 'Y') {
+						if (setSocketState(it->second, Connected)) {
+							send(hClntSock, "N", 1, 0);						// Connect Error From another client
+							requests.erase(it);
+							setSocketState(hClntSock, NONE);
+							break;
+						}
+						setSocketState(hClntSock, Connected);
+						chatrooms.push_back(*it);
+					}
+					else {
+						setSocketState(hClntSock, NONE);
+						setSocketState(it->second, NONE);
+					}
+					send(hClntSock, "O", 1, 0);
+					send(it->second, msg, 1, 0);
+					requests.erase(it);
+					break;
+				}
+			}
+		}
+
+		else if (s == Connected) {
+			if (strLen == 1 && (msg[0] == 'q' || msg[0] == 'Q')) {
+				breakroom(hClntSock);
+			}
+			sprintf_s(msgToSend, "%s %s\n", name, msg);
+			SendMsg(hClntSock, msgToSend, strlen(msgToSend));
+		}
+	}
+
+	WaitForSingleObject(hMutex, INFINITE);
+	for (auto it = clntSocks.begin(); it != clntSocks.end(); it++)   // remove disconnected client
+	{
+		if (hClntSock == (*it).first) {
+			clntSocks.erase(it);
+			break;
+		}
+	}
+	ReleaseMutex(hMutex);
+	closesocket(hClntSock);
+	return 0;
+}
+
 SOCKET getSocketFromName(char* name) {
 	WaitForSingleObject(hMutex, INFINITE);
 	SOCKET ret = SOCKET_ERROR;
-	for(auto it = clntSocks.begin(); it != clntSocks.end(); it++)
+	for (auto it = clntSocks.begin(); it != clntSocks.end(); it++)
 		if (strcmp(name, it->second.name) == 0) {
 			ret = it->first;
 			break;
@@ -98,17 +188,16 @@ SOCKET getSocketFromName(char* name) {
 	return ret;
 }
 
-void HandleData(char* msg, int msgCount, SOCKET sock) {
+void HandleCommand(char* msg, int msgCount, SOCKET sock) {
 	char buf[BUF_SIZE];
 	char name[BUF_SIZE];
 	int recvSize;
 	auto clntItem = clntSocks.find(sock);
 	SOCKET temp;
-	
+
 	if (strcmp(msg, "showlist") == 0) {		// 대화중인 클라이언트 따로 빼기
 		buf[0] = (char)1;
-		send(sock, buf, sizeof(char), 0);
-		send(sock, buf, sizeof(char), 0);
+		send(sock, buf, 1, 0);
 		buf[0] = (char)clntSocks.size();
 		send(sock, buf, sizeof(char), 0);
 		for (auto it = clntSocks.begin(); it != clntSocks.end(); it++) {
@@ -172,91 +261,6 @@ int setSocketState(SOCKET s, enum States state) {
 	}
 }
 
-unsigned WINAPI HandleClnt(void* arg)
-{
-	SOCKET hClntSock = *((SOCKET*)arg);
-	enum States s;
-	SOCKSTATE state;
-
-	int strLen = 0, i;
-	char name[100];
-	char msg[BUF_SIZE];
-	char msgToSend[BUF_SIZE + 100];
-
-	while (1) {
-		strLen = recv(hClntSock, name, 100, 0);
-		if (strLen <= 0) {
-			closesocket(hClntSock);
-			return 0;
-		}
-		name[strLen] = '\0';
-		if (getSocketFromName(name) == SOCKET_ERROR) {
-			send(hClntSock, "Y", 1, 0);
-			break;
-		}
-		else {
-			send(hClntSock, "N", 1, 0);
-		}
-	}
-
-	strcpy_s(state.name, name);
-	state.state = NONE;
-
-	clntSocks.insert(make_pair(hClntSock, state));
-
-	while (1) {
-		strLen = recv(hClntSock, msg, sizeof(msg), 0);
-		if (strLen < 0) break;
-		msg[strLen] = '\0';
-		s = clntSocks.find(hClntSock)->second.state;
-		if(s == NONE) HandleData(msg, strLen, hClntSock);
-
-		else if (s == WaitingAnswer) {
-			for (auto it = requests.begin(); it != requests.end(); it++) {
-				if (it->first == hClntSock) {
-					if (msg[0] == 'Y') {
-						if (setSocketState(it->second, Connected)) {
-							send(hClntSock, "N", 1, 0);
-							requests.erase(it);
-							setSocketState(hClntSock, NONE);
-							break;
-						}
-						setSocketState(hClntSock, Connected);
-						chatrooms.push_back(*it);
-					}
-					else {
-						setSocketState(hClntSock, NONE);
-						setSocketState(it->second, NONE);
-					}
-					send(hClntSock, "O", 1, 0);
-					send(it->second, msg, 1, 0);
-					requests.erase(it);
-					break;
-				}
-			}
-		}
-
-		else if (s == Connected) {
-			if (strLen == 1 && (msg[0] == 'q' || msg[0] == 'Q')) {
-				breakroom(hClntSock);
-			}
-			sprintf_s(msgToSend, "%s %s\n", name, msg);
-			SendMsg(hClntSock, msgToSend, strlen(msgToSend));
-		}
-	}
-
-	WaitForSingleObject(hMutex, INFINITE);
-	for (auto it = clntSocks.begin(); it != clntSocks.end(); it++)   // remove disconnected client
-	{
-		if (hClntSock == (*it).first) {
-			clntSocks.erase(it);
-			break;
-		}
-	}
-	ReleaseMutex(hMutex);
-	closesocket(hClntSock);
-	return 0;
-}
 
 void SendMsg(SOCKET sock, char* msg, int len)
 {

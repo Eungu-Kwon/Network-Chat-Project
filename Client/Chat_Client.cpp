@@ -12,6 +12,13 @@ using namespace std;
 #define BUF_SIZE 100
 #define NAME_SIZE 20
 
+void setName(SOCKET serv);
+enum Menu getCommand();
+void printCommands();
+void printList(SOCKET hSock);
+void chatRequest(SOCKET hSock);
+int runCommand(SOCKET hSock);
+
 unsigned WINAPI SendMsg(void* arg);
 unsigned WINAPI RecvMsg(void* arg);
 void ErrorHandling(const char* msg);
@@ -21,7 +28,7 @@ char msg[BUF_SIZE];
 
 int state = 0;
 
-HANDLE hMutex, hEvent;
+HANDLE hEvent, hEventForList;
 
 enum Menu{
 	Menu_ShowCommands = 1,
@@ -34,6 +41,59 @@ enum Menu{
 	REQUEST_NO,
 	Menu_Bad
 };
+
+int main(int argc, char* argv[])
+{
+	WSADATA wsaData;
+	SOCKET hSock;
+	SOCKADDR_IN servAdr;
+	HANDLE hSndThread, hRcvThread;
+	if (argc != 3) {
+		printf("Usage : %s <IP> <port>\n", argv[0]);		//TODO
+		//exit(1);
+	}
+	if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0)
+		ErrorHandling("WSAStartup() error!");
+
+	hSock = socket(PF_INET, SOCK_STREAM, 0);
+
+	memset(&servAdr, 0, sizeof(servAdr));
+	servAdr.sin_family = AF_INET;
+	servAdr.sin_addr.s_addr = inet_addr("127.0.0.1");
+	servAdr.sin_port = htons(atoi("5555"));
+
+	if (connect(hSock, (SOCKADDR*)&servAdr, sizeof(servAdr)) == SOCKET_ERROR)
+		ErrorHandling("connect() error");
+
+	setName(hSock);
+
+	hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+	hEventForList = CreateEvent(NULL, TRUE, FALSE, NULL);
+
+	cout << "채팅 서버에 접속되었습니다." << endl;
+
+	hRcvThread =
+		(HANDLE)_beginthreadex(NULL, 0, RecvMsg, (void*)&hSock, 0, NULL);
+
+	while (1) {
+		if (state == 0 || state == 1) {
+			if (runCommand(hSock)) break;
+		}
+
+		else if (state == 2) WaitForSingleObject(hEvent, INFINITE);
+
+		else if (state == 3) {
+			cout << "연결되었습니다.\n";
+			hSndThread =
+				(HANDLE)_beginthreadex(NULL, 0, SendMsg, (void*)&hSock, 0, NULL);
+			WaitForSingleObject(hSndThread, INFINITE);
+		}
+	}
+
+	closesocket(hSock);
+	WSACleanup();
+	return 0;
+}
 
 void setName(SOCKET serv) {
 	int name_size;
@@ -74,7 +134,7 @@ enum Menu getCommand() {
 		else if ((strcmp(msg, "n") == 0 || strcmp(msg, "N") == 0)) return REQUEST_NO;
 		else return Menu_Bad;
 	}
-	
+
 	else return Menu_Bad;
 }
 
@@ -88,11 +148,9 @@ void printCommands() {
 }
 
 void printList(SOCKET hSock) {
-	char buf[1];
-	int nameSize, nameCount;
-	
 	send(hSock, "showlist", 9, 0);
-	recv(hSock, buf, 1, 0);
+	WaitForSingleObject(hEventForList, INFINITE);
+	ResetEvent(hEventForList);
 }
 
 void chatRequest(SOCKET hSock) {
@@ -112,7 +170,6 @@ void chatRequest(SOCKET hSock) {
 }
 
 int runCommand(SOCKET hSock) {
-	WaitForSingleObject(hMutex, INFINITE);
 	switch (getCommand())
 	{
 	case Menu_ShowCommands:
@@ -142,60 +199,6 @@ int runCommand(SOCKET hSock) {
 	default:
 		break;
 	}
-	ReleaseMutex(hMutex);
-	return 0;
-}
-
-int main(int argc, char* argv[])
-{
-	WSADATA wsaData;
-	SOCKET hSock;
-	SOCKADDR_IN servAdr;
-	HANDLE hSndThread, hRcvThread;
-	if (argc != 3) {
-		printf("Usage : %s <IP> <port>\n", argv[0]);		//TODO
-		//exit(1);
-	}
-	if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0)
-		ErrorHandling("WSAStartup() error!");
-
-	hSock = socket(PF_INET, SOCK_STREAM, 0);
-
-	memset(&servAdr, 0, sizeof(servAdr));
-	servAdr.sin_family = AF_INET;
-	servAdr.sin_addr.s_addr = inet_addr("127.0.0.1");
-	servAdr.sin_port = htons(atoi("5555"));
-
-	if (connect(hSock, (SOCKADDR*)&servAdr, sizeof(servAdr)) == SOCKET_ERROR)
-		ErrorHandling("connect() error");
-
-	setName(hSock);
-
-	hMutex = CreateMutex(NULL, FALSE, NULL);
-	hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-
-	cout << "채팅 서버에 접속되었습니다." << endl;
-
-	hRcvThread =
-		(HANDLE)_beginthreadex(NULL, 0, RecvMsg, (void*)&hSock, 0, NULL);
-
-	while (1) {
-		if (state == 0 || state == 1) {
-			if (runCommand(hSock)) break;
-		}
-
-		else if (state == 2) WaitForSingleObject(hEvent, INFINITE);
-
-		else if (state == 3) {
-			cout << "연결되었습니다.\n";
-			hSndThread =
-				(HANDLE)_beginthreadex(NULL, 0, SendMsg, (void*)&hSock, 0, NULL);
-			WaitForSingleObject(hSndThread, INFINITE);
-		}
-	}
-
-	closesocket(hSock);
-	WSACleanup();
 	return 0;
 }
 
@@ -228,7 +231,6 @@ unsigned WINAPI RecvMsg(void* arg)
 	while (1)
 	{
 		strLen = recv(hSock, msg, 1, 0);
-		
 		if (strLen == -1)
 			return -1;
 		
@@ -238,7 +240,6 @@ unsigned WINAPI RecvMsg(void* arg)
 			switch (bufInt)
 			{
 			case 1:
-				WaitForSingleObject(hMutex, INFINITE);
 				strLen = recv(hSock, msg, 1, 0);
 				if (strLen == -1)
 					return -1;
@@ -249,7 +250,7 @@ unsigned WINAPI RecvMsg(void* arg)
 					printf("%c", msg[0]);
 				}
 				cout << endl;
-				ReleaseMutex(hMutex);
+				SetEvent(hEventForList);
 				break;
 			case 2:
 				strLen = recv(hSock, msg, BUF_SIZE + NAME_SIZE, 0);

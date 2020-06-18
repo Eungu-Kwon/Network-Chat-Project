@@ -1,10 +1,1 @@
-﻿  Chat_Server.cpp
-C:\Users\Eungu Kwon\source\repos\Network_Chat_Project\Server\Chat_Server.cpp(52,6): warning C4101: 'fdNum' :참조되지 않은 지역 변수입니다.
-C:\Users\Eungu Kwon\source\repos\Network_Chat_Project\Server\Chat_Server.cpp(50,7): warning C4101: 'buf' :참조되지 않은 지역 변수입니다.
-C:\Users\Eungu Kwon\source\repos\Network_Chat_Project\Server\Chat_Server.cpp(51,6): warning C4101: 'strLen' :참조되지 않은 지역 변수입니다.
-C:\Users\Eungu Kwon\source\repos\Network_Chat_Project\Server\Chat_Server.cpp(47,12): warning C4101: 'state' :참조되지 않은 지역 변수입니다.
-C:\Users\Eungu Kwon\source\repos\Network_Chat_Project\Server\Chat_Server.cpp(53,19): warning C4101: 'hNamingThread' :참조되지 않은 지역 변수입니다.
-C:\Users\Eungu Kwon\source\repos\Network_Chat_Project\Server\Chat_Server.cpp(49,8): warning C4101: 'nameBuf' :참조되지 않은 지역 변수입니다.
-C:\Users\Eungu Kwon\source\repos\Network_Chat_Project\Server\Chat_Server.cpp(181,18): warning C4101: 'i' :참조되지 않은 지역 변수입니다.
-C:\Users\Eungu Kwon\source\repos\Network_Chat_Project\Server\Chat_Server.cpp(263,6): warning C4101: 'i' :참조되지 않은 지역 변수입니다.
-  Server.vcxproj -> C:\Users\Eungu Kwon\source\repos\Network_Chat_Project\Debug\Server.exe
+﻿  Server.vcxproj -> C:\Users\Eungu Kwon\source\repos\Network_Chat_Project\Debug\Server.exe
