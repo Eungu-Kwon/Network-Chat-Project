@@ -16,6 +16,8 @@ void setName(SOCKET serv);
 enum Menu getCommand();
 void printCommands();
 void printList(SOCKET hSock);
+void makeGroup(SOCKET hSock);
+void joinGroup(SOCKET hSock);
 void chatRequest(SOCKET hSock);
 int runCommand(SOCKET hSock);
 
@@ -91,8 +93,8 @@ int main(int argc, char* argv[])
 
 		else if (state == WaitingRequest) WaitForSingleObject(hEvent, INFINITE);
 
-		else if (state == Connected) {
-			cout << "연결되었습니다.\n";
+		else if (state == Connected || state == GroupConnected) {
+			if (state == Connected) cout << "연결되었습니다.\n";
 			hSndThread =
 				(HANDLE)_beginthreadex(NULL, 0, SendMsg, (void*)&hSock, 0, NULL);
 			WaitForSingleObject(hSndThread, INFINITE);
@@ -189,8 +191,19 @@ void chatRequest(SOCKET hSock) {
 
 void makeGroup(SOCKET hSock) {
 	send(hSock, "makegroup", 10, 0);
-	recv(hSock, msg, sizeof(msg), 0);
-	cout << "단체 채팅방 입력코드는 " << msg << "입니다.\n\n";
+	WaitForSingleObject(hEventForList, INFINITE);
+	ResetEvent(hEventForList);
+}
+
+void joinGroup(SOCKET hSock) {
+	char temp[BUF_SIZE];
+	cout << "단체 채팅방에 입장하기 위한 코드를 입력해주세요.\n";
+	cin >> msg;
+	cin.ignore(1);
+	sprintf(temp, "joingroup%s", msg);
+	send(hSock, temp, strlen(temp) + 1, 0);
+	WaitForSingleObject(hEventForList, INFINITE);
+	ResetEvent(hEventForList);
 }
 
 int runCommand(SOCKET hSock) {
@@ -209,6 +222,7 @@ int runCommand(SOCKET hSock) {
 		makeGroup(hSock);
 		break;
 	case Menu_JoinGroup:
+		joinGroup(hSock);
 		break;
 	case Menu_Exit:
 		cout << "프로그램을 종료합니다." << '\n';
@@ -234,7 +248,7 @@ unsigned WINAPI SendMsg(void* arg)
 	while (1)
 	{
 		fgets(msg, BUF_SIZE, stdin);
-		if (state != Connected) break;
+		if (state != Connected && state != GroupConnected) break;
 		if (!strcmp(msg, "q\n") || !strcmp(msg, "Q\n"))
 		{
 			send(hSock, msg, 1, 0);
@@ -258,7 +272,6 @@ unsigned WINAPI RecvMsg(void* arg)
 		strLen = recv(hSock, msg, 1, 0);
 		if (strLen == -1)
 			return -1;
-		
 		bufInt = (int)msg[0];
 
 		if (state == NONE) {
@@ -277,6 +290,24 @@ unsigned WINAPI RecvMsg(void* arg)
 				msg[strLen] = '\0';
 				cout << msg << " 님이 요청하였습니다. 받으시겠습니까? (y : 수락, n : 거절)\n";
 				state = WaitingAnswer;
+				break;
+			case 3:
+				strLen = recv(hSock, msg, sizeof(msg), 0);
+				printf("단체 채팅방 입력코드는 %s 입니다.\n\n", msg);
+				state = GroupConnected;
+				SetEvent(hEventForList);
+				break;
+			case 4:
+				strLen = recv(hSock, msg, 1, 0);
+				if (msg[0] == 'Y') {
+					printf("단체 채팅방에 입장하였습니다.\n\n");
+					state = GroupConnected;
+				}
+				else {
+					printf("존재하지 않는 코드입니다. 다시 확인해주세요.\n\n");
+				}
+				SetEvent(hEventForList);
+				break;
 			default:
 				break;
 			}
@@ -299,7 +330,7 @@ unsigned WINAPI RecvMsg(void* arg)
 			SetEvent(hEvent);
 		}
 
-		else if (state == Connected) {
+		else if (state == Connected || state == GroupConnected) {
 			if (msg[0] == 'q') {
 				state = NONE;
 				cout << "연결이 끊어졌습니다. 계속하려면 엔터를 누르세요.";
