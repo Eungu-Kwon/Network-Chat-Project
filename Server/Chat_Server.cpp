@@ -11,7 +11,7 @@
 using namespace std;
 #pragma comment(lib, "Ws2_32.lib")
 
-#define BUF_SIZE 100
+#define BUF_SIZE 1000
 #define MAX_CLNT 256
 
 void HandleCommand(char* msg, int msgCount, SOCKET sock);
@@ -20,6 +20,7 @@ void breakroom(SOCKET sock);
 int setSocketState(SOCKET s, enum States state);
 unsigned WINAPI HandleClnt(void* arg);
 void SendMsg(SOCKET sock, char* msg, int len);
+int isGroupCommand(SOCKET sock, char* msg);
 void SendGroupMsg(SOCKET sock, char* msg, int len);
 void ErrorHandling(const char* msg);
 
@@ -163,7 +164,7 @@ unsigned WINAPI HandleClnt(void* arg)
 		}
 
 		else if (s == Connected) {
-			if (strLen == 1 && (msg[0] == 'q' || msg[0] == 'Q')) {
+			if (strncmp(msg, "!!\n//quit//!!", 13) == 0) {
 				breakroom(hClntSock);
 			}
 			sprintf_s(msgToSend, "%s %s\n", name, msg);
@@ -171,8 +172,25 @@ unsigned WINAPI HandleClnt(void* arg)
 		}
 
 		else if (s == GroupConnected) {
-			sprintf_s(msgToSend, "%s %s\n", name, msg);
-			SendGroupMsg(hClntSock, msgToSend, strlen(msgToSend));
+			if (!isGroupCommand(hClntSock, msg)) {
+				if (strncmp(msg, "!!\n//quit//!!", 13) == 0) {
+					auto room = group_chats.find(clntSocks.find(hClntSock)->second.connectwith);
+					for (auto it = room->second.begin(); it != room->second.end(); it++) {
+						if (*it == hClntSock) {
+							room->second.erase(it);
+							break;
+						}
+					}
+					setSocketState(hClntSock, NONE);
+					strcpy_s(msg, "님이 나가셨습니다.\n");
+					if (room->second.size() == 0) {
+						group_chats.erase(room);
+						continue;
+					}
+				}
+				sprintf_s(msgToSend, "%s %s\n", name, msg);
+				SendGroupMsg(hClntSock, msgToSend, strlen(msgToSend));
+			}
 		}
 	}
 
@@ -332,6 +350,38 @@ void SendMsg(SOCKET sock, char* msg, int len)
 	}
 
 	ReleaseMutex(hMutex);
+}
+
+int isGroupCommand(SOCKET sock, char* msg) {
+	if (strncmp(msg, "!h", 2) == 0 || strncmp(msg, "!H", 2) == 0) {
+		strcpy_s(msg, BUF_SIZE, "!l or !L : 채팅방 멤버 리스트\n");
+		if (sock == group_chats.find(clntSocks.find(sock)->second.connectwith)->second[0]) {
+			strcat_s(msg, BUF_SIZE, "!o or !O : 멤버 강제 퇴장\n!a or !A : 채팅방 공지 등록\n");
+		}
+		strcat_s(msg, BUF_SIZE, "!c or !C : 채팅방 공지 확인\n!e or !E : 대화방 나가기\n");
+		send(sock, msg, 1, 0);
+		send(sock, msg, strlen(msg), 0);
+		return 1;
+	}
+	else if (strncmp(msg, "!l", 2) == 0 || strncmp(msg, "!L", 2) == 0) {
+		auto room = group_chats.find(clntSocks.find(sock)->second.connectwith);
+		msg[0] = '\0';
+		for (auto it = room->second.begin(); it != room->second.end(); it++) {
+			strcat_s(msg, BUF_SIZE, clntSocks.find(*it)->second.name);
+			strcat_s(msg, BUF_SIZE, "\n");
+		}
+		send(sock, msg, 1, 0);
+		send(sock, msg, strlen(msg), 0);
+		return 1;
+	}
+	else if (strncmp(msg, "!a", 2) == 0 || strncmp(msg, "!A", 2) == 0) {
+		//TODO
+		return 1;
+	}
+	else if (strncmp(msg, "!c", 2) == 0 || strncmp(msg, "!C", 2) == 0) {
+		return 1;
+	}
+	return 0;
 }
 
 void SendGroupMsg(SOCKET sock, char* msg, int len)

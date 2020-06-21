@@ -9,7 +9,7 @@ using namespace std;
 
 #pragma comment(lib, "Ws2_32.lib")
 
-#define BUF_SIZE 100
+#define BUF_SIZE 1000
 #define NAME_SIZE 20
 
 void setName(SOCKET serv);
@@ -164,6 +164,7 @@ void printCommands() {
 	cout << "!r or !R : 1 대 1 채팅 요청" << '\n';
 	cout << "!g or !G : 단체 채팅방 만들기" << '\n';
 	cout << "!j or !J : 단체 채팅방 입장" << '\n';
+	cout << "!e or !E : 대화중 채팅 종료" << '\n';
 	cout << "!q or !Q : 프로그램 종료" << '\n';
 }
 
@@ -249,9 +250,10 @@ unsigned WINAPI SendMsg(void* arg)
 	{
 		fgets(msg, BUF_SIZE, stdin);
 		if (state != Connected && state != GroupConnected) break;
-		if (!strcmp(msg, "q\n") || !strcmp(msg, "Q\n"))
+		if (!strcmp(msg, "!e\n") || !strcmp(msg, "!E\n"))
 		{
-			send(hSock, msg, 1, 0);
+			strcpy(msg, "!!\n//quit//!!");
+			send(hSock, msg, 13, 0);
 			state = NONE;
 			break;
 		}
@@ -273,6 +275,7 @@ unsigned WINAPI RecvMsg(void* arg)
 		if (strLen == -1)
 			return -1;
 		bufInt = (int)msg[0];
+		//printf("recv!\n");
 
 		if (state == NONE) {
 			switch (bufInt)
@@ -293,14 +296,14 @@ unsigned WINAPI RecvMsg(void* arg)
 				break;
 			case 3:
 				strLen = recv(hSock, msg, sizeof(msg), 0);
-				printf("단체 채팅방 입력코드는 %s 입니다.\n\n", msg);
+				printf("단체 채팅방 입력코드는 %s 입니다. (!h or !H : 단체 채팅방 명령어 확인)\n\n", msg);
 				state = GroupConnected;
 				SetEvent(hEventForList);
 				break;
 			case 4:
 				strLen = recv(hSock, msg, 1, 0);
 				if (msg[0] == 'Y') {
-					printf("단체 채팅방에 입장하였습니다.\n\n");
+					printf("단체 채팅방에 입장하였습니다. (!h or !H : 단체 채팅방 명령어 확인)\n\n");
 					state = GroupConnected;
 				}
 				else {
