@@ -333,6 +333,17 @@ unsigned WINAPI RecvMsg(void* arg)
 			SetEvent(hEvent);
 		}
 
+		else if (state == GroupConnected && msg[0] == '\n') {
+			recv(hSock, msg, 1, 0);
+			int a_count = (int)msg[0];
+			if (a_count == 0) cout << "아직 공지사항이 없습니다!\n";
+
+			while (recv(hSock, msg, 1, 0) > 0) {
+				if (msg[0] == '\b') break;
+				printf("%c", msg[0]);
+			}
+		}
+
 		else if (state == Connected || state == GroupConnected) {
 			if (msg[0] == 'q') {
 				state = NONE;
