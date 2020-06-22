@@ -136,9 +136,21 @@ unsigned WINAPI HandleClnt(void* arg)
 
 	while (1) {
 		strLen = recv(hClntSock, msg, sizeof(msg), 0);
+		s = clntSocks.find(hClntSock)->second.state;
+		if (s == WaitingAnswer && strLen < 0) {
+			for (auto it = requests.begin(); it != requests.end(); it++) {
+				if (it->first == hClntSock) {
+					setSocketState(it->second, NONE);
+					
+					send(it->second, "T", 1, 0);
+					requests.erase(it);
+					break;
+				}
+			}
+		}
+
 		if (strLen < 0) break;
 		msg[strLen] = '\0';
-		s = clntSocks.find(hClntSock)->second.state;
 
 		if(s == NONE) HandleCommand(msg, strLen, hClntSock);
 
