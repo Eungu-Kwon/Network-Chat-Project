@@ -269,6 +269,7 @@ unsigned WINAPI RecvMsg(void* arg)
 	char msg[NAME_SIZE + BUF_SIZE];
 	int strLen;
 	int bufInt;
+	int n, m;
 	while (1)
 	{
 		strLen = recv(hSock, msg, 1, 0);
@@ -350,7 +351,10 @@ unsigned WINAPI RecvMsg(void* arg)
 				cout << "연결이 끊어졌습니다. 계속하려면 엔터를 누르세요.";
 				continue;
 			}
-			strLen = recv(hSock, msg, BUF_SIZE, 0);
+			n = bufInt;
+			recv(hSock, msg, 1, 0);
+			m = msg[0];
+			strLen = recv(hSock, msg, (n * 100) + m, 0);
 			msg[strLen] = '\0';
 			cout << msg;
 		}

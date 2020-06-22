@@ -23,6 +23,7 @@ unsigned WINAPI HandleClnt(void* arg);
 void SendMsg(SOCKET sock, char* msg, int len);
 int isGroupCommand(SOCKET sock, char* msg);
 void SendGroupMsg(SOCKET sock, char* msg, int len);
+void sendMsgWithProtocol(SOCKET sock, char* msg);
 void ErrorHandling(const char* msg);
 
 enum States {
@@ -369,13 +370,11 @@ void SendMsg(SOCKET sock, char* msg, int len)
 	WaitForSingleObject(hMutex, INFINITE);
 	for (auto it = chatrooms.begin(); it != chatrooms.end(); it++) {
 		if (it->first == sock) {
-			send(it->second, msg, 1, 0);
-			send(it->second, msg, len, 0);
+			sendMsgWithProtocol(it->second, msg);
 			break;
 		}
 		else if (it->second == sock) {
-			send(it->first, msg, 1, 0);
-			send(it->first, msg, len, 0);
+			sendMsgWithProtocol(it->first, msg);
 			break;
 		}
 	}
@@ -390,8 +389,7 @@ int isGroupCommand(SOCKET sock, char* msg) {
 			strcat_s(msg, BUF_SIZE, "!o or !O : 멤버 강제 퇴장\n!a or !A : 채팅방 공지 등록\n");
 		}
 		strcat_s(msg, BUF_SIZE, "!c or !C : 채팅방 공지 확인\n!e or !E : 대화방 나가기\n");
-		send(sock, msg, 1, 0);
-		send(sock, msg, strlen(msg), 0);
+		sendMsgWithProtocol(sock, msg);
 		return 1;
 	}
 	else if (strncmp(msg, "!l", 2) == 0 || strncmp(msg, "!L", 2) == 0) {
@@ -401,14 +399,12 @@ int isGroupCommand(SOCKET sock, char* msg) {
 			strcat_s(msg, BUF_SIZE, clntSocks.find(*it)->second.name);
 			strcat_s(msg, BUF_SIZE, "\n");
 		}
-		send(sock, msg, 1, 0);
-		send(sock, msg, strlen(msg), 0);
+		sendMsgWithProtocol(sock, msg);
 		return 1;
 	}
 	else if (sock == group_chats.find(clntSocks.find(sock)->second.connectwith)->second[0] && (strncmp(msg, "!a", 2) == 0 || strncmp(msg, "!A", 2) == 0)) {
 		strcpy_s(msg, BUF_SIZE, "공지를 등록해주세요.\n");
-		send(sock, msg, 1, 0);
-		send(sock, msg, strlen(msg), 0);
+		sendMsgWithProtocol(sock, msg);
 		setSocketState(sock, GroupAnnounce);
 		return 1;
 	}
@@ -428,6 +424,16 @@ int isGroupCommand(SOCKET sock, char* msg) {
 	return 0;
 }
 
+void sendMsgWithProtocol(SOCKET sock, char* msg) {
+	char num[1];
+	int n = strlen(msg) + 1;
+	num[0] = (char)(n / 100);;
+	send(sock, num, 1, 0);
+	num[0] = (char)(n % 100);
+	send(sock, num, 1, 0);
+	send(sock, msg, strlen(msg) + 1, 0);
+}
+
 void SendGroupMsg(SOCKET sock, char* msg, int len)
 {
 	WaitForSingleObject(hMutex, INFINITE);
@@ -435,8 +441,7 @@ void SendGroupMsg(SOCKET sock, char* msg, int len)
 	auto room = group_chats.find(roomnum);
 	for (auto it = room->second.begin(); it != room->second.end(); it++) {
 		if (*it == sock) continue;
-		send(*it, msg, 1, 0);
-		send(*it, msg, len, 0);
+		sendMsgWithProtocol(*it, msg);
 	}
 	ReleaseMutex(hMutex);
 }
