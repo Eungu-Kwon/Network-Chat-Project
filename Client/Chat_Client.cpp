@@ -107,20 +107,11 @@ int main(int argc, char* argv[])
 }
 
 void setName(SOCKET serv) {
-	int i = 0;
 	char buf[10];
 	fputs("채팅 서버에 접속하기 위해 닉네임을 입력해주세요.\n", stdout);
 	while (1) {
-		i = 0;
 		cin >> msg;
 		cin.ignore(1);
-		while (msg[i] != '\0') {
-			if (msg[i++] == '*') {
-				cout << "*이 들어간 특수문자는 사용할 수 없습니다. 다시 입력해주세요.\n";
-				break;
-			}
-		}
-		if (msg[i] != '\0') continue;
 
 		sprintf(name, "[%s]", msg);
 
@@ -283,7 +274,7 @@ unsigned WINAPI RecvMsg(void* arg)
 			{
 			case 1:											// Get Name List
 				while (recv(hSock, msg, 1, 0) > 0) {
-					if (msg[0] == '*') break;
+					if (msg[0] == '\b') break;
 					printf("%c", msg[0]);
 				}
 				cout << endl;

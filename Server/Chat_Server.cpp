@@ -71,8 +71,6 @@ int main(int argc, char* argv[])
 	if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0)
 		ErrorHandling("WSAStartup() error!");
 
-	
-
 	hMutex = CreateMutex(NULL, FALSE, NULL);
 	hServSock = socket(PF_INET, SOCK_STREAM, 0);
 
@@ -255,7 +253,7 @@ void HandleCommand(char* msg, int msgCount, SOCKET sock) {
 				send(sock, buf, strlen(buf), 0);
 			}
 		}
-		send(sock, "*", 1, 0);
+		send(sock, "\b", 1, 0);
 	}
 	else if (strncmp(msg, "requestchat", 11) == 0) {
 		if (msgCount == 12) {
