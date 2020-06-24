@@ -10,7 +10,7 @@ using namespace std;
 #pragma comment(lib, "Ws2_32.lib")
 
 #define BUF_SIZE 1000
-#define NAME_SIZE 20
+#define NAME_SIZE 100
 
 void setName(SOCKET serv);
 enum Menu getCommand();
@@ -167,6 +167,7 @@ void printList(SOCKET hSock) {
 
 void chatRequest(SOCKET hSock) {
 	char nameBuf[100];
+	char msgToSend[111];
 	cout << "대상을 입력하세요. >> ";
 	cin >> nameBuf;
 	cin.ignore(1);
@@ -175,8 +176,8 @@ void chatRequest(SOCKET hSock) {
 		return;
 	}
 	cout << "요청중..." << '\n';
-	send(hSock, "requestchat", 12, 0);
-	send(hSock, nameBuf, strlen(nameBuf), 0);
+	sprintf_s(msgToSend, "requestchat%s", nameBuf);
+	send(hSock, msgToSend, strlen(msgToSend), 0);
 	ResetEvent(hEvent);
 	state = WaitingRequest;
 }
@@ -267,7 +268,6 @@ unsigned WINAPI RecvMsg(void* arg)
 		if (strLen == -1)
 			return -1;
 		bufInt = (int)msg[0];
-		//printf("recv!\n");
 
 		if (state == NONE) {
 			switch (bufInt)
@@ -340,6 +340,23 @@ unsigned WINAPI RecvMsg(void* arg)
 			if (msg[0] == 'q') {
 				state = NONE;
 				cout << "연결이 끊어졌습니다. 계속하려면 엔터를 누르세요.";
+				continue;
+			}
+			if (msg[0] == 'o') {
+				state = NONE;
+				cout << "방장에 의해 퇴장당했습니다. 계속하려면 엔터를 누르세요.";
+				continue;
+			}
+			if (msg[0] == 'Y') {
+				printf("강퇴시켰습니다.\n\n");
+				continue;
+			}
+			else if (msg[0] == 'N') {
+				printf("해당 사용자는 존재하지 않습니다. 다시 확인해주세요.\n\n");
+				continue;
+			}
+			else if (msg[0] == 'M') {
+				printf("자기 자신은 내보낼 수 없습니다!\n\n");
 				continue;
 			}
 			n = bufInt;

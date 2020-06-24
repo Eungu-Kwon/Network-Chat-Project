@@ -12,12 +12,14 @@ using namespace std;
 #pragma comment(lib, "Ws2_32.lib")
 
 #define BUF_SIZE 1000
+#define NAME_SIZE 100
 #define MAX_CLNT 256
 
 void HandleCommand(char* msg, int msgCount, SOCKET sock);
+void HandleAnswerFromRequestedClient(SOCKET hClntSock, char* msg);
 SOCKET getSocketFromName(char* name);
-void breakroom(SOCKET sock);
-int group_exit(SOCKET sock);
+void breakroom(SOCKET sock);											// 1:1 채팅 종료
+int group_exit(SOCKET sock);											// 단체 채팅에서 연결종료
 int setSocketState(SOCKET s, enum States state);
 unsigned WINAPI HandleClnt(void* arg);
 void SendMsg(SOCKET sock, char* msg, int len);
@@ -36,7 +38,7 @@ enum States {
 };
 
 typedef struct sock_state {
-	char name[100];
+	char name[NAME_SIZE];
 	enum States state;
 	int connectwith;
 }SOCKSTATE;
@@ -105,14 +107,14 @@ unsigned WINAPI HandleClnt(void* arg)
 	SOCKSTATE state;
 
 	int strLen = 0, i;
-	char name[100];
+	char name[NAME_SIZE];
 	char msg[BUF_SIZE];
-	char msgToSend[BUF_SIZE + 100];
+	char msgToSend[BUF_SIZE + NAME_SIZE];
 
 	srand((unsigned int)time(NULL));
 
 	while (1) {											// Set Name
-		strLen = recv(hClntSock, name, 100, 0);
+		strLen = recv(hClntSock, name, NAME_SIZE, 0);
 		if (strLen <= 0) {
 			closesocket(hClntSock);
 			return 0;
@@ -150,32 +152,9 @@ unsigned WINAPI HandleClnt(void* arg)
 		if (strLen < 0) break;
 		msg[strLen] = '\0';
 
-		if(s == NONE) HandleCommand(msg, strLen, hClntSock);
+		if (s == NONE) HandleCommand(msg, strLen, hClntSock);
 
-		else if (s == WaitingAnswer) {
-			for (auto it = requests.begin(); it != requests.end(); it++) {
-				if (it->first == hClntSock) {
-					if (msg[0] == 'Y') {
-						if (setSocketState(it->second, Connected)) {
-							send(hClntSock, "N", 1, 0);						// Connect Error From another client
-							requests.erase(it);
-							setSocketState(hClntSock, NONE);
-							break;
-						}
-						setSocketState(hClntSock, Connected);
-						chatrooms.push_back(*it);
-					}
-					else {
-						setSocketState(hClntSock, NONE);
-						setSocketState(it->second, NONE);
-					}
-					send(hClntSock, "O", 1, 0);
-					send(it->second, msg, 1, 0);
-					requests.erase(it);
-					break;
-				}
-			}
-		}
+		else if (s == WaitingAnswer) HandleAnswerFromRequestedClient(hClntSock, msg);
 
 		else if (s == Connected) {
 			if (strncmp(msg, "!!\n//quit//!!", 13) == 0) {
@@ -211,17 +190,41 @@ unsigned WINAPI HandleClnt(void* arg)
 		}
 	}
 
-	WaitForSingleObject(hMutex, INFINITE);
-	for (auto it = clntSocks.begin(); it != clntSocks.end(); it++)   // remove disconnected client
-	{
-		if (hClntSock == (*it).first) {
-			clntSocks.erase(it);
-			break;
-		}
-	}
+	WaitForSingleObject(hMutex, INFINITE);							// disconnect client
+
+	auto me = clntSocks.find(hClntSock);
+	if (me->second.state == GroupConnected) group_exit(hClntSock);
+	if (me->second.state == Connected) breakroom(hClntSock);
+	clntSocks.erase(me);
+
 	ReleaseMutex(hMutex);
 	closesocket(hClntSock);
 	return 0;
+}
+
+void HandleAnswerFromRequestedClient(SOCKET hClntSock, char* msg) {
+	for (auto it = requests.begin(); it != requests.end(); it++) {
+		if (it->first == hClntSock) {
+			if (msg[0] == 'Y') {
+				if (setSocketState(it->second, Connected)) {
+					send(hClntSock, "N", 1, 0);						// Connect Error From another client
+					requests.erase(it);
+					setSocketState(hClntSock, NONE);
+					break;
+				}
+				setSocketState(hClntSock, Connected);
+				chatrooms.push_back(*it);
+			}
+			else {
+				setSocketState(hClntSock, NONE);
+				setSocketState(it->second, NONE);
+			}
+			send(hClntSock, "O", 1, 0);
+			send(it->second, msg, 1, 0);
+			requests.erase(it);
+			break;
+		}
+	}
 }
 
 SOCKET getSocketFromName(char* name) {
@@ -256,15 +259,7 @@ void HandleCommand(char* msg, int msgCount, SOCKET sock) {
 		send(sock, "\b", 1, 0);
 	}
 	else if (strncmp(msg, "requestchat", 11) == 0) {
-		if (msgCount == 12) {
-			recvSize = recv(sock, buf, BUF_SIZE, 0);
-			buf[recvSize] = '\0';
-			sprintf_s(name, "[%s]", buf);
-		}
-		else {
-			sprintf_s(name, "[%s]", msg + 12);
-		}
-
+		sprintf_s(name, "[%s]", msg + 11);
 		if ((temp = getSocketFromName(name)) != SOCKET_ERROR) {
 			if (clntSocks.find(temp)->second.state != NONE) {
 				send(sock, "2", 1, 0);
@@ -393,6 +388,8 @@ void SendMsg(SOCKET sock, char* msg, int len)
 }
 
 int isGroupCommand(SOCKET sock, char* msg) {
+	char temp[NAME_SIZE];
+	int num;
 	if (strncmp(msg, "!h", 2) == 0 || strncmp(msg, "!H", 2) == 0) {
 		strcpy_s(msg, BUF_SIZE, "!l or !L : 채팅방 멤버 리스트\n");
 		if (sock == group_chats.find(clntSocks.find(sock)->second.connectwith)->second[0]) {
@@ -410,6 +407,29 @@ int isGroupCommand(SOCKET sock, char* msg) {
 			strcat_s(msg, BUF_SIZE, "\n");
 		}
 		sendMsgWithProtocol(sock, msg);
+		return 1;
+	}
+	else if (sock == group_chats.find(clntSocks.find(sock)->second.connectwith)->second[0] && (strncmp(msg, "!o", 2) == 0 || strncmp(msg, "!O", 2) == 0)) {
+		strcpy_s(temp, "강퇴시킬 상대를 입력해주세요. >> ");
+		sendMsgWithProtocol(sock, temp);
+		num = recv(sock, msg, NAME_SIZE, 0);
+		msg[num] = '\0';
+		sprintf_s(temp, NAME_SIZE, "[%s]", msg);
+		auto toOut = getSocketFromName(temp);
+		if (toOut == SOCKET_ERROR) {
+			send(sock, "N", 1, 0);
+			return 1;
+		}
+		if (sock == toOut) {
+			send(sock, "M", 1, 0);
+			return 1;
+		}
+		group_exit(toOut);
+		setSocketState(toOut, NONE);
+		send(toOut, "o", 1, 0);
+		sprintf_s(msg, BUF_SIZE, "%s님이 강제 퇴장 당하였습니다.\n", temp);
+		send(sock, "Y", 1, 0);
+		SendGroupMsg(sock, msg, strlen(msg));
 		return 1;
 	}
 	else if (sock == group_chats.find(clntSocks.find(sock)->second.connectwith)->second[0] && (strncmp(msg, "!a", 2) == 0 || strncmp(msg, "!A", 2) == 0)) {
