@@ -60,8 +60,8 @@ int main(int argc, char* argv[])
 	SOCKADDR_IN servAdr;
 	HANDLE hSndThread, hRcvThread;
 	if (argc != 3) {
-		printf("Usage : %s <IP> <port>\n", argv[0]);		//TODO
-		//exit(1);
+		printf("Usage : %s <IP> <port>\n", argv[0]);
+		exit(1);
 	}
 	if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0)
 		ErrorHandling("WSAStartup() error!");
@@ -70,8 +70,8 @@ int main(int argc, char* argv[])
 
 	memset(&servAdr, 0, sizeof(servAdr));
 	servAdr.sin_family = AF_INET;
-	servAdr.sin_addr.s_addr = inet_addr("127.0.0.1");
-	servAdr.sin_port = htons(atoi("5555"));
+	servAdr.sin_addr.s_addr = inet_addr(argv[1]);
+	servAdr.sin_port = htons(atoi(argv[2]));
 
 	if (connect(hSock, (SOCKADDR*)&servAdr, sizeof(servAdr)) == SOCKET_ERROR)
 		ErrorHandling("connect() error");

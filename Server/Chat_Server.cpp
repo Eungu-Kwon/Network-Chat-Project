@@ -58,13 +58,8 @@ int main(int argc, char* argv[])
 	WSADATA wsaData;
 	SOCKET hServSock, hClntSock;
 	SOCKADDR_IN servAdr, clntAdr;
-	SOCKSTATE state;
 	int clntAdrSz;
-	char* nameBuf;
-	char buf[BUF_SIZE];
-	int strLen;
-	int fdNum;
-	HANDLE  hThread, hNamingThread;
+	HANDLE  hThread;
 
 	if (argc != 2) {
 		printf("Usage : %s <port>\n", argv[0]);
@@ -106,7 +101,7 @@ unsigned WINAPI HandleClnt(void* arg)
 	enum States s;
 	SOCKSTATE state;
 
-	int strLen = 0, i;
+	int strLen = 0;
 	char name[NAME_SIZE];
 	char msg[BUF_SIZE];
 	char msgToSend[BUF_SIZE + NAME_SIZE];
@@ -242,7 +237,6 @@ SOCKET getSocketFromName(char* name) {
 void HandleCommand(char* msg, int msgCount, SOCKET sock) {
 	char buf[BUF_SIZE];
 	char name[BUF_SIZE];
-	int recvSize;
 	int num;
 	auto clntItem = clntSocks.find(sock);
 	SOCKET temp;
